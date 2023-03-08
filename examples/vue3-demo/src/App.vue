@@ -11,6 +11,7 @@ import HelloWorld from './components/HelloWorld.vue'
       <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
     </a>
   </div>
+  <micro-app name="lbm" url="http://127.0.0.1:3001"></micro-app>
   <HelloWorld msg="Vite + Vue" />
 </template>
 
