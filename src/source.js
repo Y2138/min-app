@@ -1,4 +1,4 @@
-import { fetchSource } from "./utils"
+import { fetchSource, validHttp } from "./utils"
 
 // fetch加载html资源
 export default function loadHtml (app) {
@@ -18,10 +18,10 @@ export default function loadHtml (app) {
     // 将html字符串转化为dom结构
     const htmlDom = document.createElement("div")
     htmlDom.innerHTML = formatHtml
-    console.log('html: ', htmlDom)
 
     // 进一步提取和处理js、css等静态资源
     extractSourceDom(htmlDom, app);
+    console.log('App Source: ', app.source)
 
     // 获取micro-app-head
     const microAppHead = htmlDom.querySelector('micro-app-head')
@@ -58,36 +58,47 @@ function extractSourceDom (parent, app) {
   // 判断如果是link、script标签去加载对应的资源
   for (const dom of children) {
     if (dom instanceof HTMLLinkElement) {
-      // 提取link地址
+      // 提取远程link地址
       const href = dom.getAttribute('href')
       if (dom.getAttribute('ref') === 'stylesheet' && href) {
         app.source.links.set(href, {
           code: '', // 代码内容，先定义用于缓存
         })
+        // 删除原有元素
+        parent.removeChild(dom)
       }
-      // 删除原有元素
-      parent.removeChild(dom)
     } else if (dom instanceof HTMLScriptElement) {
       // 提取script标签
       let src = dom.getAttribute('src')
+      let type = dom.getAttribute('type')
       if (src) {
-        const httpReg = new RegExp(/^http(s)?:\/\/([\w-]+\.)+[\w-]+([\w- ./?%&=]*)?/)
-        if (!httpReg.test(src)) {
-          src = (app.url.charAt(app.url.length - 1) === '/' ? app.url.substring(0, app.url.length - 1) : app.url) + src
+        src = validHttp(src, app.url)
+        if (type === 'module') {
+          dom.setAttribute('src', src)
+          app.source.scripts.set(src, {
+            code: '',
+            type: 'module', // 区分是不是module，执行逻辑不一样
+            isExternal: true
+          })
+        } else {
+          app.source.scripts.set(src, {
+            code: '',
+            type: 'script',
+            isExternal: true, // 是否远程
+          })
         }
-        app.source.scripts.set(src, {
-          code: '',
-          isExternal: true, // 是否远程
-        })
       } else if (dom.textContent) {
         // 没有src则是内联元素
         const nonceStr = Math.random().toString(36).substring(2, 17)
         app.source.scripts.set(nonceStr, {
-          code: dom.textContent, // 代码内
+          code: dom.textContent, // 内联代码块
+          type: type === 'module' ? 'module' : 'script',
           isExternal: false, // 是否远程
         })
       }
-      parent.removeChild(dom)
+      let replaceComment = document.createComment('script element removed by micro-app')
+      // es-module模块不删除
+      parent.replaceChild(replaceComment, dom)
     } else if (dom instanceof HTMLStyleElement) {
       // 进行样式隔离
     }
@@ -95,7 +106,7 @@ function extractSourceDom (parent, app) {
 }
 
 /**
- * 
+ * 获取所有link标签
  * @param {App实例} app 
  * @param {microAppHead标签} microAppHead 
  * @param {html} htmlDom 
@@ -136,6 +147,7 @@ function fetchLinksFromHtml(app, microAppHead, htmlDom) {
   const scriptEntries = Array.from(app.source.scripts.entries())
   // 通过fetch请求所有js资源
   const fetchScriptPromise = []
+  console.log('scriptEntries: ', scriptEntries)
   for (const [url, info] of scriptEntries) {
     // 如果是内联script，则不需要请求资源
     fetchScriptPromise.push(!info.isExternal ? Promise.resolve(info.code) :  fetchSource(url))
